@@ -299,6 +299,7 @@ async function callClaude({ content }) {
     })
   });
   const data = await res.json();
+  if (!data.content) throw new Error(`Anthropic API error: ${JSON.stringify(data)}`);
   return data.content.filter(b => b.type === "text").map(b => b.text).join("");
 }
 
