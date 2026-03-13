@@ -188,15 +188,3 @@ async function notifySlack(d, s) {
 // Railway injects PORT dynamically — never hardcode 3000
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`🎬 Trailer Agent running on port ${PORT}`));
-{
-  "name": "trailer-agent",
-  "version": "1.0.0",
-  "type": "module",
-  "scripts": {
-    "start": "node server.js"
-  },
-  "dependencies": {
-    "express": "^4.18.2",
-    "node-fetch": "^3.3.2"
-  }
-}
