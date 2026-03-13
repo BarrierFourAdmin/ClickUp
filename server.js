@@ -271,8 +271,8 @@ ${d.gameLink}`;
     // 2a: Get upload URL
     const urlRes = await fetch("https://slack.com/api/files.getUploadURLExternal", {
       method: "POST",
-      headers: { Authorization: `Bearer ${SLACK_BOT_TOKEN}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ filename, length: sow.pdfBuffer.length })
+      headers: { Authorization: `Bearer ${SLACK_BOT_TOKEN}`, "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ filename, length: sow.pdfBuffer.length.toString() })
     });
     const urlData = await urlRes.json();
     if (!urlData.ok) { console.warn(`PDF upload URL failed: ${urlData.error}`); return; }
