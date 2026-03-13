@@ -16,15 +16,15 @@ const SLACK_BOT_ICON    = process.env.SLACK_BOT_ICON_URL;
 app.get("/", (req, res) => res.send("🎬 Trailer Agent running"));
 
 // ── ClickUp webhook ───────────────────────────────────────────────────────
+const processedTasks = new Set();
+
 app.post("/webhook", async (req, res) => {
   console.log("Webhook received:", JSON.stringify(req.body));
   const { event, task_id } = req.body;
   if (event !== "taskCommentPosted") return res.sendStatus(200);
+  if (processedTasks.has(task_id)) return res.sendStatus(200);
 
-  // Ignore comments posted by the bot itself
-  const commentText = req.body.comment?.comment?.[0]?.text || "";
-  if (commentText.includes("GENERATED TRAILER BRIEF")) return res.sendStatus(200);
-
+  processedTasks.add(task_id);
   res.sendStatus(200);
   runPipeline(task_id).catch(console.error);
 });
