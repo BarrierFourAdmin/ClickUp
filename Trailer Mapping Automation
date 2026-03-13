@@ -1,8 +1,4 @@
-// ── Create Google Drive project folder ───────────────────────────────────
-async function createDriveFolder(projectName) {
-  const metadata = {
-    name: projectName,
-    mimeType: "const express = require("express");
+const express = require("express");
 const fetch = (...args) => import("node-fetch").then(({ default: f }) => f(...args));
 const FormData = require("form-data");
 
@@ -11,8 +7,8 @@ app.use(express.json());
 
 const CLICKUP_API_KEY   = process.env.CLICKUP_API_KEY;
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
-const SLACK_BOT_TOKEN   = process.env.SLACK_BOT_TOKEN;   // xoxb-...
-const SLACK_CHANNEL_ID  = process.env.SLACK_CHANNEL_ID;  // e.g. C0ALD219V2R
+const SLACK_BOT_TOKEN   = process.env.SLACK_BOT_TOKEN;
+const SLACK_CHANNEL_ID  = process.env.SLACK_CHANNEL_ID;
 const SLACK_BOT_NAME    = process.env.SLACK_BOT_NAME || "Barrier Four";
 const SLACK_BOT_ICON    = process.env.SLACK_BOT_ICON_URL;
 
@@ -121,7 +117,7 @@ async function fetchSOWFromComments(taskId) {
   // Download the PDF
   const pdfRes = await fetch(pdfUrl, { headers: { Authorization: CLICKUP_API_KEY } });
   if (!pdfRes.ok) throw new Error(`PDF download error: ${pdfRes.status}`);
-  const pdfBuffer = await pdfRes.buffer();
+  const pdfBuffer = Buffer.from(await pdfRes.arrayBuffer()); // ← fixed for node-fetch v3
   const pdfBase64 = pdfBuffer.toString("base64");
 
   // Extract deliverables via Claude
@@ -193,7 +189,7 @@ Return ONLY JSON (no markdown):
   return JSON.parse(res.replace(/```json|```/g, "").trim());
 }
 
-// ── Post full brief as ClickUp comment ───────────────────────────────────
+// ── Post full brief as ClickUp comment ────────────────────────────────────
 async function postClickUpComment(taskId, d, s, sow) {
   const body = `🎬 GENERATED TRAILER BRIEF
 ==========================
@@ -272,7 +268,7 @@ ${d.gameLink}
   if (sow?.pdfBuffer) {
     const form = new FormData();
     form.append("channels", SLACK_CHANNEL_ID);
-    form.append("thread_ts", msgData.ts); // attaches to the kickoff message thread
+    form.append("thread_ts", msgData.ts);
     form.append("filename", sow.pdfName || "SOW.pdf");
     form.append("file", sow.pdfBuffer, { filename: sow.pdfName || "SOW.pdf", contentType: "application/pdf" });
 
