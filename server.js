@@ -228,13 +228,16 @@ ${sow?.deadline ? `\n⏱ Deadline: ${sow.deadline}` : ""}`;
 
 // ── Send Slack kickoff with bot identity + PDF attachment ─────────────────
 async function sendSlackKickoff(d, s, sow) {
-  const deliverablesList = sow ? sow.deliverables.join(", ") : "See SOW";
+  const deliverablesList = sow
+    ? sow.deliverables.map(item => `• ${item}`).join("\n")
+    : "• See SOW";
 
   const message = `<!channel> *NEW PROJECT KICKOFF*
 
 *Client:* ${d.clientName} / ${d.studio}
 *Package:* ${sow?.packageName || sow?.docName || "See SOW"}
-*Deliverables:* ${deliverablesList}
+*Deliverables:*
+${deliverablesList}
 *Deadline:* ${sow?.deadline ? `${sow.deadline} — see SOW for full schedule` : "See SOW"}
 *Deposit:* Pending
 
@@ -242,10 +245,7 @@ async function sendSlackKickoff(d, s, sow) {
 *Intake form:*
 ${d.taskUrl}
 *${d.gameName} game link:*
-${d.gameLink}
-
-
-<!channel>`;
+${d.gameLink}`;
 
   // Step 1: Post the message with custom bot identity
   const msgRes = await fetch("https://slack.com/api/chat.postMessage", {
