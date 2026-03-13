@@ -264,21 +264,38 @@ ${d.gameLink}`;
   const msgData = await msgRes.json();
   if (!msgData.ok) throw new Error(`Slack message failed: ${msgData.error}`);
 
-  // Step 2: Upload the SOW PDF as a reply in the same thread
+  // Step 2: Upload the SOW PDF as a reply in the same thread (new 3-step API)
   if (sow?.pdfBuffer) {
-    const form = new FormData();
-    form.append("channels", SLACK_CHANNEL_ID);
-    form.append("thread_ts", msgData.ts);
-    form.append("filename", sow.pdfName || "SOW.pdf");
-    form.append("file", sow.pdfBuffer, { filename: sow.pdfName || "SOW.pdf", contentType: "application/pdf" });
+    const filename = sow.pdfName || "SOW.pdf";
 
-    const uploadRes = await fetch("https://slack.com/api/files.upload", {
+    // 2a: Get upload URL
+    const urlRes = await fetch("https://slack.com/api/files.getUploadURLExternal", {
       method: "POST",
-      headers: { Authorization: `Bearer ${SLACK_BOT_TOKEN}`, ...form.getHeaders() },
-      body: form
+      headers: { Authorization: `Bearer ${SLACK_BOT_TOKEN}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ filename, length: sow.pdfBuffer.length })
     });
-    const uploadData = await uploadRes.json();
-    if (!uploadData.ok) console.warn(`PDF upload failed: ${uploadData.error}`);
+    const urlData = await urlRes.json();
+    if (!urlData.ok) { console.warn(`PDF upload URL failed: ${urlData.error}`); return; }
+
+    // 2b: Upload file to the provided URL
+    await fetch(urlData.upload_url, {
+      method: "POST",
+      headers: { "Content-Type": "application/octet-stream" },
+      body: sow.pdfBuffer
+    });
+
+    // 2c: Complete the upload and attach to thread
+    const completeRes = await fetch("https://slack.com/api/files.completeUploadExternal", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${SLACK_BOT_TOKEN}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        files: [{ id: urlData.file_id }],
+        channel_id: SLACK_CHANNEL_ID,
+        thread_ts: msgData.ts
+      })
+    });
+    const completeData = await completeRes.json();
+    if (!completeData.ok) console.warn(`PDF complete failed: ${completeData.error}`);
     else console.log("SOW PDF attached to Slack thread");
   }
 }
