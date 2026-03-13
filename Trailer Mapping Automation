@@ -1,0 +1,188 @@
+// server.js — Game Trailer Auto-Brief Agent
+// Run: node server.js
+// Deploy to: Railway, Render, Vercel, or any Node host
+
+import express from "express";
+import fetch from "node-fetch";
+
+const app = express();
+app.use(express.json());
+
+const CLICKUP_API_KEY = process.env.CLICKUP_API_KEY;
+const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
+const SLACK_WEBHOOK_URL = process.env.SLACK_WEBHOOK_URL; // optional
+
+// ── 1. ClickUp sends a POST here when a new form task is created ──────────
+app.post("/webhook", async (req, res) => {
+  const { event, task_id } = req.body;
+
+  // Only trigger on new task creation in your form list
+  if (event !== "taskCreated") return res.sendStatus(200);
+
+  console.log(`New task received: ${task_id}`);
+  res.sendStatus(200); // Respond to ClickUp immediately
+
+  // Run the pipeline async (don't block the response)
+  runPipeline(task_id).catch(console.error);
+});
+
+// ── 2. Full pipeline ──────────────────────────────────────────────────────
+async function runPipeline(taskId) {
+  try {
+    console.log(`[${taskId}] Fetching task...`);
+    const task = await fetchTask(taskId);
+
+    console.log(`[${taskId}] Parsing fields...`);
+    const brief = parseCustomFields(task);
+
+    console.log(`[${taskId}] Generating script with Claude...`);
+    const script = await generateScript(brief);
+
+    console.log(`[${taskId}] Posting comment to ClickUp...`);
+    await postComment(taskId, script, brief);
+
+    if (SLACK_WEBHOOK_URL) {
+      console.log(`[${taskId}] Notifying Slack...`);
+      await notifySlack(brief, script);
+    }
+
+    console.log(`[${taskId}] ✅ Done!`);
+  } catch (err) {
+    console.error(`[${taskId}] Pipeline error:`, err.message);
+  }
+}
+
+// ── 3. Fetch task from ClickUp ────────────────────────────────────────────
+async function fetchTask(taskId) {
+  const res = await fetch(
+    `https://api.clickup.com/api/v2/task/${taskId}?custom_fields=true`,
+    { headers: { Authorization: CLICKUP_API_KEY } }
+  );
+  if (!res.ok) throw new Error(`ClickUp fetch failed: ${res.status}`);
+  return res.json();
+}
+
+// ── 4. Map custom fields to brief object ─────────────────────────────────
+function parseCustomFields(task) {
+  const cf = {};
+  (task.custom_fields || []).forEach(f => { cf[f.name] = f.value || ""; });
+
+  return {
+    gameName: task.name?.replace(/trailer mapping/i, "").trim() || task.name,
+    clientName:      cf["Client Name"] || "",
+    clientEmail:     cf["Email"] || "",
+    genre:           cf["What genre best describes your game?"] || "",
+    pitch:           cf["What is your game's one sentence pitch?"] || "",
+    audience:        cf["Who is the desired audience for your game and the game trailer?"] || "",
+    visualDos:       cf["Are there any visual do's or don'ts we should follow?"] || "",
+    itemsToShow:     cf["Are there specific items the players in the trailer should be wearing?"] || "",
+    locations:       cf["Are there specific locations, maps, or environments we should highlight?"] || "",
+    storyBeats:      cf["Are there specific story beats or moments you want featured?"] || "",
+    features:        cf["What are some of your game's unique qualities?"] || "",
+    audienceFeel:    cf["How should the audience feel after watching this game trailer?"] || "",
+    musicStyle:      cf["If not, what music style fits your game best?"] || cf["Does the game have its own soundtrack?"] || "",
+    pacing:          cf["What pacing feels right for this trailer?"] || "",
+    references:      cf["What should the pacing of the trailer be?"] || "",
+    platform:        cf["Where will this trailer be used?"] || "",
+    successMetrics:  cf["How will you measure success for this trailer?"] || "",
+    notes:           cf["Is there anything else we should know?"] || "",
+    duration:        "60 seconds",
+  };
+}
+
+// ── 5. Generate script with Claude ───────────────────────────────────────
+async function generateScript(d) {
+  const prompt = `You are a world-class game trailer scriptwriter. Generate a complete production-ready creative brief and trailer script.
+
+CLIENT BRIEF:
+Game: ${d.gameName}
+Pitch: ${d.pitch}
+Client: ${d.clientName} (${d.clientEmail})
+Genre: ${d.genre}
+Audience: ${d.audience}
+Visual Do's/Don'ts: ${d.visualDos}
+Items to showcase: ${d.itemsToShow}
+Locations: ${d.locations}
+Story beats: ${d.storyBeats}
+Game features: ${d.features}
+Audience should feel: ${d.audienceFeel}
+Music style: ${d.musicStyle}
+Pacing: ${d.pacing}
+Reference trailers: ${d.references}
+Platform: ${d.platform}
+Success metrics: ${d.successMetrics}
+Duration: ${d.duration}
+Notes: ${d.notes}
+
+Return ONLY a JSON object (no markdown, no preamble):
+{
+  "tagline": "punchy one-liner tagline",
+  "logline": "2-3 sentence trailer narrative arc",
+  "script": "Full timestamped scene-by-scene script",
+  "musicDirection": "tempo, mood, style, reference tracks",
+  "editingNotes": "pacing, cut style, key VFX moments",
+  "callToAction": "end card / CTA copy",
+  "deliverables": ["array", "of", "deliverables"]
+}`;
+
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": ANTHROPIC_API_KEY,
+      "anthropic-version": "2023-06-01"
+    },
+    body: JSON.stringify({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 1000,
+      messages: [{ role: "user", content: prompt }]
+    })
+  });
+
+  const data = await res.json();
+  const text = data.content.map(b => b.text || "").join("").replace(/```json|```/g, "").trim();
+  return JSON.parse(text);
+}
+
+// ── 6. Post comment back to ClickUp task ─────────────────────────────────
+async function postComment(taskId, s, d) {
+  const body = `🎬 GENERATED TRAILER BRIEF
+==========================
+Game: ${d.gameName} | Genre: ${d.genre} | Duration: ${d.duration}
+
+🏷 TAGLINE: ${s.tagline}
+
+📖 LOGLINE: ${s.logline}
+
+🎥 SCRIPT:
+${s.script}
+
+🎵 MUSIC DIRECTION: ${s.musicDirection}
+
+✂️ EDITING NOTES: ${s.editingNotes}
+
+📣 CALL TO ACTION: ${s.callToAction}
+
+📦 DELIVERABLES:
+${s.deliverables.map(d => `• ${d}`).join("\n")}`;
+
+  const res = await fetch(`https://api.clickup.com/api/v2/task/${taskId}/comment`, {
+    method: "POST",
+    headers: { Authorization: CLICKUP_API_KEY, "Content-Type": "application/json" },
+    body: JSON.stringify({ comment_text: body })
+  });
+  if (!res.ok) throw new Error(`Comment failed: ${res.status}`);
+}
+
+// ── 7. Notify Slack (optional) ────────────────────────────────────────────
+async function notifySlack(d, s) {
+  await fetch(SLACK_WEBHOOK_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      text: `🎮 *New Trailer Brief: ${d.gameName}*\n*Client:* ${d.clientName}\n*Tagline:* "${s.tagline}"\n*Genre:* ${d.genre}\n\n${s.logline}`
+    })
+  });
+}
+
+app.listen(3000, () => console.log("🎬 Trailer Agent running on port 3000"));
