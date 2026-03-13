@@ -18,7 +18,14 @@ app.get("/", (req, res) => res.send("🎬 Trailer Agent running"));
 // ── ClickUp webhook ───────────────────────────────────────────────────────
 app.post("/webhook", async (req, res) => {
   const { event, task_id } = req.body;
-  if (event !== "taskCreated") return res.sendStatus(200);
+  if (event !== "taskCommentPosted") return res.sendStatus(200);
+
+  // Only trigger if the comment contains a PDF attachment
+  const comment = req.body.comment || {};
+  const blocks = comment.comment || [];
+  const hasPDF = blocks.some(b => b.type === "attachment" && b.attachment?.extension === "pdf");
+  if (!hasPDF) return res.sendStatus(200);
+
   res.sendStatus(200);
   runPipeline(task_id).catch(console.error);
 });
